@@ -1,33 +1,37 @@
 #!/usr/bin/env python3
 
+import gi
+
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk, Gdk, GObject
+
 import os
 import re
 import csv
 from matplotlib.figure import Figure
-from matplotlib.backends.backend_gtk3agg import (
-    FigureCanvasGTK3Agg as FigureCanvas)
-from matplotlib.backends.backend_gtk3 import (
-    NavigationToolbar2GTK3 as NavigationToolbar)
+from matplotlib.backends.backend_gtk3agg import FigureCanvasGTK3Agg as FigureCanvas
+from matplotlib.backends.backend_gtk3 import NavigationToolbar2GTK3 as NavigationToolbar
 import matplotlib as mpl
-from gi.repository import Gtk, Gdk, GObject, cairo
-import gi
-gi.require_version('Gtk', '3.0')
 
-RUNS_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'runs')
+RUNS_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "runs")
 
 
 def read_runs():
     filename_pattern = re.compile(r"^run\.mon\.(\d{5})\.(.*)\.csv$")
 
-    for (f, num, desc) in (map(g.group, range(3)) for g in map(filename_pattern.match, sorted(os.listdir(RUNS_DIR))) if g):
+    for (f, num, desc) in (
+        map(g.group, range(3))
+        for g in map(filename_pattern.match, sorted(os.listdir(RUNS_DIR)))
+        if g
+    ):
         if os.path.isfile(os.path.join(RUNS_DIR, f)):
             yield (int(num), desc)
 
 
 def read_cases_data(num, desc):
-    filename = os.path.join(RUNS_DIR, f'run.mon.{num:05}.{desc}.csv')
-    with open(filename, 'r', newline='') as csvfile:
-        rows = iter(csv.reader(csvfile, dialect='unix'))
+    filename = os.path.join(RUNS_DIR, f"run.mon.{num:05}.{desc}.csv")
+    with open(filename, "r", newline="") as csvfile:
+        rows = iter(csv.reader(csvfile, dialect="unix"))
         # Discard header
         next(rows)
         for row in rows:
@@ -36,24 +40,22 @@ def read_cases_data(num, desc):
 
 class CellRendererLineColor(Gtk.CellRenderer):
     drawn = GObject.Property(type=bool, default=False)
-    line_color = GObject.Property(
-        type=Gdk.RGBA, default=Gdk.RGBA(1.0, 1.0, 1.0, 1.0))
+    line_color = GObject.Property(type=Gdk.RGBA, default=Gdk.RGBA(1.0, 1.0, 1.0, 1.0))
 
     def __init__(self):
         Gtk.CellRenderer.__init__(self)
 
     def do_render(self, cr, widget, background_area, cell_area, flags):
-        if self.get_property('drawn') and flags & Gtk.CellRendererState.SELECTED:
+        if self.get_property("drawn") and flags & Gtk.CellRendererState.SELECTED:
             cr.set_source_rgb(1, 1, 1)
-            cr.rectangle(cell_area.x, cell_area.y,
-                         cell_area.width, cell_area.height)
+            cr.rectangle(cell_area.x, cell_area.y, cell_area.width, cell_area.height)
             cr.fill()
 
             height = cell_area.y + cell_area.height / 2
             cr.move_to(cell_area.x, height)
             cr.line_to(cell_area.x + cell_area.width, height)
 
-            color = self.get_property('line_color')
+            color = self.get_property("line_color")
             cr.set_source_rgba(*color)
             cr.stroke()
 
@@ -75,21 +77,29 @@ class Viewer:
         builder = Gtk.Builder()
         builder.add_from_file("viewer-gui.glade")
 
-        runs_view = builder.get_object('runs_view')
+        runs_view = builder.get_object("runs_view")
         runs_view.set_model(runs_store)
-        runs_view.append_column(Gtk.TreeViewColumn(
-            'Seq', text=0, cell_renderer=Gtk.CellRendererText()))
-        runs_view.append_column(Gtk.TreeViewColumn(
-            'Description', text=1, cell_renderer=Gtk.CellRendererText()))
+        runs_view.append_column(
+            Gtk.TreeViewColumn("Seq", text=0, cell_renderer=Gtk.CellRendererText())
+        )
+        runs_view.append_column(
+            Gtk.TreeViewColumn(
+                "Description", text=1, cell_renderer=Gtk.CellRendererText()
+            )
+        )
         self.runs_selection = runs_view.get_selection()
         self.runs_selection.select_all()
 
-        cases_view = builder.get_object('cases_view')
+        cases_view = builder.get_object("cases_view")
         cases_view.set_model(cases_store)
-        cases_view.append_column(Gtk.TreeViewColumn(
-            'Case', text=0, cell_renderer=Gtk.CellRendererText()))
-        cases_view.append_column(Gtk.TreeViewColumn(
-            'Color', drawn=1, line_color=2, cell_renderer=CellRendererLineColor()))
+        cases_view.append_column(
+            Gtk.TreeViewColumn("Case", text=0, cell_renderer=Gtk.CellRendererText())
+        )
+        cases_view.append_column(
+            Gtk.TreeViewColumn(
+                "Color", drawn=1, line_color=2, cell_renderer=CellRendererLineColor()
+            )
+        )
         self.cases_selection = cases_view.get_selection()
         self.cases_selection.select_all()
 
@@ -108,8 +118,9 @@ class Viewer:
         toolbar = NavigationToolbar(self.canvas, win)
         box.pack_start(toolbar, False, False, 0)
 
-        builder.connect_signals({'onQuit': Gtk.main_quit,
-                                'onDataSelection': self.refresh_data})
+        builder.connect_signals(
+            {"onQuit": Gtk.main_quit, "onDataSelection": self.refresh_data}
+        )
 
         self.refresh_data()
 
@@ -131,7 +142,7 @@ class Viewer:
                 except KeyError:
                     continue
 
-                if case[1] == 'Success':
+                if case[1] == "Success":
                     row[-1] = float(case[3]) + float(case[4])
 
         x = list(range(len(sel_runs)))
@@ -142,7 +153,7 @@ class Viewer:
                 cases.set(it, [1], [False])
                 continue
 
-            l = self.ax.plot(x, values, 'o-', label=case_name)[0]
+            l = self.ax.plot(x, values, "o-", label=case_name)[0]
 
             # Set the color in the list view to render the legend
             color = Gdk.RGBA(*mpl.colors.to_rgba(l.get_color()))
@@ -157,5 +168,5 @@ def main():
     Gtk.main()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
