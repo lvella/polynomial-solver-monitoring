@@ -8,7 +8,6 @@ from gi.repository import Gtk, Gdk, GObject
 import os
 import re
 import csv
-import math
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_gtk3agg import FigureCanvasGTK3Agg as FigureCanvas
 from matplotlib.backends.backend_gtk3 import NavigationToolbar2GTK3 as NavigationToolbar
@@ -155,6 +154,9 @@ class Viewer:
                 if case[1] == "Success":
                     row[-1] = float(case[3]) + float(case[4])
 
+        self.ax.set_ylabel("Run time (seconds)")
+        self.ax.set_yscale("linear")
+
     def get_progress_data(self, selected_runs, selected_cases):
         for run in selected_runs:
             for (_, row) in selected_cases.values():
@@ -188,11 +190,22 @@ class Viewer:
                 if new_row[i] is not None:
                     if first is None:
                         first = new_row[i]
-                        new_row[i] = 0.0
+                        new_row[i] = 1.0
                     else:
-                        new_row[i] = math.log2(new_row[i] / first)
+                        new_row[i] = new_row[i] / first
 
             row[:] = new_row
+
+        self.ax.set_ylabel("Relative progress")
+        self.ax.set_yscale("symlog")
+        self.ax.hlines(
+            y=1.0,
+            xmin=0,
+            xmax=len(selected_runs) - 1,
+            colors="grey",
+            linestyles="--",
+            lw=1,
+        )
 
     def refresh_data(self, *args):
         (cases, sel_cases) = self.cases_selection.get_selected_rows()
@@ -202,10 +215,12 @@ class Viewer:
         (runs, sel_runs) = self.runs_selection.get_selected_rows()
         sel_runs = [runs.get(runs.get_iter(p), 0, 1) for p in sel_runs]
 
-        self.get_data(sel_runs, cases_vals)
-
         x = list(range(len(sel_runs)))
         self.ax.clear()
+
+        self.get_data(sel_runs, cases_vals)
+
+        self.ax.set_xlabel("Case ID")
         self.ax.set_xticks(x, next(zip(*sel_runs)))
         for (case_name, (it, values)) in cases_vals.items():
             if all(v is None for v in values):
