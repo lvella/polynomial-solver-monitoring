@@ -12,6 +12,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_gtk3agg import FigureCanvasGTK3Agg as FigureCanvas
 from matplotlib.backends.backend_gtk3 import NavigationToolbar2GTK3 as NavigationToolbar
 import matplotlib as mpl
+import math
 
 RUNS_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "runs")
 
@@ -51,13 +52,23 @@ class CellRendererLineColor(Gtk.CellRenderer):
             cr.rectangle(cell_area.x, cell_area.y, cell_area.width, cell_area.height)
             cr.fill()
 
-            height = cell_area.y + cell_area.height / 2
-            cr.move_to(cell_area.x, height)
-            cr.line_to(cell_area.x + cell_area.width, height)
+            middle_y = cell_area.y + cell_area.height / 2
+            middle_x = cell_area.x + cell_area.width / 2
 
-            color = self.get_property("line_color")
-            cr.set_source_rgba(*color)
+            cr.set_source_rgba(*self.get_property("line_color"))
+
+            cr.arc(middle_x, middle_y, 5, 0, 2 * math.pi)
+            cr.fill()
+
+            cr.move_to(cell_area.x, middle_y)
+            cr.line_to(cell_area.x + cell_area.width, middle_y)
             cr.stroke()
+
+
+def new_resizable_column(*args, **kwargs):
+    c = Gtk.TreeViewColumn(*args, **kwargs)
+    c.set_resizable(True)
+    return c
 
 
 class Viewer:
@@ -80,10 +91,10 @@ class Viewer:
         runs_view = builder.get_object("runs_view")
         runs_view.set_model(runs_store)
         runs_view.append_column(
-            Gtk.TreeViewColumn("Seq", text=0, cell_renderer=Gtk.CellRendererText())
+            new_resizable_column("Seq", text=0, cell_renderer=Gtk.CellRendererText())
         )
         runs_view.append_column(
-            Gtk.TreeViewColumn(
+            new_resizable_column(
                 "Description", text=1, cell_renderer=Gtk.CellRendererText()
             )
         )
@@ -92,13 +103,16 @@ class Viewer:
 
         cases_view = builder.get_object("cases_view")
         cases_view.set_model(cases_store)
-        cases_view.append_column(
-            Gtk.TreeViewColumn("Case", text=0, cell_renderer=Gtk.CellRendererText())
+        c = Gtk.TreeViewColumn(
+            "Color", drawn=1, line_color=2, cell_renderer=CellRendererLineColor()
         )
+        c.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
+        c.set_expand(False)
+        c.set_fixed_width(50)
+        c.set_clickable(True)
+        cases_view.append_column(c)
         cases_view.append_column(
-            Gtk.TreeViewColumn(
-                "Color", drawn=1, line_color=2, cell_renderer=CellRendererLineColor()
-            )
+            new_resizable_column("Case", text=0, cell_renderer=Gtk.CellRendererText())
         )
         self.cases_selection = cases_view.get_selection()
         self.cases_selection.select_all()
@@ -197,7 +211,7 @@ class Viewer:
             row[:] = new_row
 
         self.ax.set_ylabel("Relative progress")
-        self.ax.set_yscale("symlog")
+        self.ax.set_yscale("log")
         self.ax.hlines(
             y=1.0,
             xmin=0,
@@ -206,6 +220,9 @@ class Viewer:
             linestyles="--",
             lw=1,
         )
+        self.ax.get_yaxis().set_major_formatter(mpl.ticker.ScalarFormatter())
+        loc = mpl.ticker.MultipleLocator(base=0.1)
+        self.ax.get_yaxis().set_major_locator(loc)
 
     def refresh_data(self, *args):
         (cases, sel_cases) = self.cases_selection.get_selected_rows()
