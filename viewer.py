@@ -118,6 +118,7 @@ class Viewer:
         self.cases_selection.select_all()
 
         self.fig = Figure(figsize=(5, 4), dpi=100)
+        self.fig.canvas.mpl_connect("motion_notify_event", self.mouse_hover)
         self.ax = self.fig.add_subplot(1, 1, 1)
 
         self.radiobutton_plot_runtime = builder.get_object("radiobutton_plot_runtime")
@@ -239,6 +240,7 @@ class Viewer:
 
         self.ax.set_xlabel("Case ID")
         self.ax.set_xticks(x, next(zip(*sel_runs)))
+        self.lines = []
         for (case_name, (it, values)) in cases_vals.items():
             if all(v is None for v in values):
                 cases.set(it, [1], [False])
@@ -249,9 +251,44 @@ class Viewer:
             # Set the color in the list view to render the legend
             color = Gdk.RGBA(*mpl.colors.to_rgba(l.get_color()))
             cases.set(it, [1, 2], [True, color])
-        # TODO: display line case name upon hovering
+            self.lines.append(l)
 
-        self.canvas.draw()
+        # Hovering annotation with the name of the case, only displayed when
+        # pointed by the mouse.
+        self.annot = self.ax.annotate(
+            "",
+            xy=(0, 0),
+            xytext=(-20, 20),
+            textcoords="offset points",
+            bbox=dict(boxstyle="round", fc="w"),
+            arrowprops=dict(arrowstyle="->"),
+        )
+        self.annot.set_visible(False)
+
+        self.canvas.draw_idle()
+
+    def update_annot(self, ind, line):
+        x, y = line.get_data()
+        self.annot.xy = (x[ind["ind"][0]], y[ind["ind"][0]])
+        self.annot.set_text(line.get_label())
+
+    def mouse_hover(self, event):
+        if event.inaxes:  # There is only one axis...
+            # Find which line we are hovering over (if any):
+            #
+            # TODO: it would be nice to have a quadtree here to narrow down the
+            # lines.
+            for line in self.lines:
+                cont, ind = line.contains(event)
+                if cont:
+                    self.update_annot(ind, line)
+                    self.annot.set_visible(True)
+                    self.canvas.draw_idle()
+                    return
+
+            if self.annot.get_visible():
+                self.annot.set_visible(False)
+                self.canvas.draw_idle()
 
 
 def main():
