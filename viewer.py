@@ -73,6 +73,8 @@ def new_resizable_column(*args, **kwargs):
 
 class Viewer:
     def __init__(self):
+        self.selected_line = None
+
         runs_store = Gtk.ListStore(int, str)
         cases_store = Gtk.ListStore(str, bool, Gdk.RGBA)
 
@@ -119,6 +121,7 @@ class Viewer:
 
         self.fig = Figure(figsize=(5, 4), dpi=100)
         self.fig.canvas.mpl_connect("motion_notify_event", self.mouse_hover)
+        self.fig.canvas.mpl_connect("button_press_event", self.mouse_click)
         self.ax = self.fig.add_subplot(1, 1, 1)
 
         self.radiobutton_plot_runtime = builder.get_object("radiobutton_plot_runtime")
@@ -247,6 +250,7 @@ class Viewer:
                 continue
 
             l = self.ax.plot(x, values, "o-", label=case_name)[0]
+            l.it = it
 
             # Set the color in the list view to render the legend
             color = Gdk.RGBA(*mpl.colors.to_rgba(l.get_color()))
@@ -281,14 +285,22 @@ class Viewer:
             for line in self.lines:
                 cont, ind = line.contains(event)
                 if cont:
+                    self.selected_line = line
                     self.update_annot(ind, line)
                     self.annot.set_visible(True)
                     self.canvas.draw_idle()
                     return
 
             if self.annot.get_visible():
+                self.selected_line = None
                 self.annot.set_visible(False)
                 self.canvas.draw_idle()
+
+    def mouse_click(self, event):
+        if event.inaxes and self.selected_line:
+            self.cases_selection.unselect_all()
+            self.cases_selection.select_iter(self.selected_line.it)
+            self.canvas.draw_idle()
 
 
 def main():
