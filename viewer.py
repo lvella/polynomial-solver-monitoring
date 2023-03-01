@@ -3,7 +3,7 @@
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk, Gdk, GObject
+from gi.repository import Gtk, Gdk, GLib, GObject
 
 import os
 import re
@@ -17,26 +17,53 @@ import math
 RUNS_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "runs")
 
 
-def read_runs():
+def read_data_sets():
+    return [
+        data_set
+        for data_set in os.listdir(RUNS_DIR)
+        if os.path.isdir(os.path.join(RUNS_DIR, data_set))
+    ]
+
+
+def read_runs(data_set):
     filename_pattern = re.compile(r"^run\.mon\.(\d{5})\.(.*)\.csv$")
 
     for (f, num, desc) in (
         map(g.group, range(3))
-        for g in map(filename_pattern.match, sorted(os.listdir(RUNS_DIR)))
+        for g in map(
+            filename_pattern.match, sorted(os.listdir(os.path.join(RUNS_DIR, data_set)))
+        )
         if g
     ):
-        if os.path.isfile(os.path.join(RUNS_DIR, f)):
+        if os.path.isfile(os.path.join(RUNS_DIR, data_set, f)):
             yield (int(num), desc)
 
 
-def read_cases_data(num, desc):
-    filename = os.path.join(RUNS_DIR, f"run.mon.{num:05}.{desc}.csv")
+def read_cases_data(data_set, num, desc):
+    filename = os.path.join(RUNS_DIR, data_set, f"run.mon.{num:05}.{desc}.csv")
     with open(filename, "r", newline="") as csvfile:
         rows = iter(csv.reader(csvfile, dialect="unix"))
         # Discard header
         next(rows)
         for row in rows:
             yield row
+
+
+class DelayedExecutor:
+    def __init__(self, function):
+        self._function = function
+        self._scheduled = False
+
+    def schedule_run(self):
+        if not self._scheduled:
+            GLib.idle_add(self._do_execute)
+            self._scheduled = True
+
+    def _do_execute(self):
+        self._function()
+        self._scheduled = False
+
+        return False
 
 
 class CellRendererLineColor(Gtk.CellRenderer):
@@ -73,25 +100,28 @@ def new_resizable_column(*args, **kwargs):
 
 class Viewer:
     def __init__(self):
+        self.refresher = DelayedExecutor(self._refresh_data)
         self.selected_line = None
 
-        runs_store = Gtk.ListStore(int, str)
-        cases_store = Gtk.ListStore(str, bool, Gdk.RGBA)
+        data_sets = Gtk.ListStore(str)
+        for data_set in read_data_sets():
+            data_sets.append([data_set])
 
-        known_cases = dict()
-        for run in read_runs():
-            runs_store.append(run)
-            for data in read_cases_data(*run):
-                # Insert case name in a dict instead of a set to preserve the original order:
-                known_cases[data[0]] = None
-        for case_name in known_cases:
-            cases_store.append([case_name, False, Gdk.RGBA()])
+        self.runs_store = Gtk.ListStore(int, str)
+        self.cases_store = Gtk.ListStore(str, bool, Gdk.RGBA)
 
         builder = Gtk.Builder()
         builder.add_from_file("viewer-gui.glade")
 
+        set_selector = builder.get_object("set_selector")
+        set_selector.set_model(data_sets)
+        set_selector.set_id_column(0)
+        set_selector_renderer = Gtk.CellRendererText()
+        set_selector.pack_start(set_selector_renderer, True)
+        set_selector.add_attribute(set_selector_renderer, "text", 0)
+
         runs_view = builder.get_object("runs_view")
-        runs_view.set_model(runs_store)
+        runs_view.set_model(self.runs_store)
         runs_view.append_column(
             new_resizable_column("Seq", text=0, cell_renderer=Gtk.CellRendererText())
         )
@@ -101,10 +131,9 @@ class Viewer:
             )
         )
         self.runs_selection = runs_view.get_selection()
-        self.runs_selection.select_all()
 
         cases_view = builder.get_object("cases_view")
-        cases_view.set_model(cases_store)
+        cases_view.set_model(self.cases_store)
         c = Gtk.TreeViewColumn(
             "Color", drawn=1, line_color=2, cell_renderer=CellRendererLineColor()
         )
@@ -117,7 +146,6 @@ class Viewer:
             new_resizable_column("Case", text=0, cell_renderer=Gtk.CellRendererText())
         )
         self.cases_selection = cases_view.get_selection()
-        self.cases_selection.select_all()
 
         self.fig = Figure(figsize=(5, 4), dpi=100)
         self.fig.canvas.mpl_connect("motion_notify_event", self.mouse_hover)
@@ -143,12 +171,13 @@ class Viewer:
         builder.connect_signals(
             {
                 "onQuit": Gtk.main_quit,
-                "onDataSelection": self.refresh_data,
+                "onDataSetSelected": self.refresh_data_set,
+                "onDataSelection": lambda _: self.refresher.schedule_run(),
                 "onChangePlotType": self.change_plot_type,
             }
         )
 
-        self.refresh_data()
+        set_selector.set_active(0)
 
         win.show_all()
 
@@ -157,13 +186,13 @@ class Viewer:
             self.get_data = self.get_runtime_data
         elif self.radiobutton_plot_progress.get_active():
             self.get_data = self.get_progress_data
-        self.refresh_data()
+        self.refresher.schedule_run()
 
     def get_runtime_data(self, selected_runs, selected_cases):
         for run in selected_runs:
             for (_, row) in selected_cases.values():
                 row.append(None)
-            for case in read_cases_data(*run):
+            for case in read_cases_data(self.selected_data_set, *run):
                 try:
                     (_, row) = selected_cases[case[0]]
                 except KeyError:
@@ -179,7 +208,7 @@ class Viewer:
         for run in selected_runs:
             for (_, row) in selected_cases.values():
                 row.append((False, None))
-            for case in read_cases_data(*run):
+            for case in read_cases_data(self.selected_data_set, *run):
                 try:
                     (_, row) = selected_cases[case[0]]
                 except KeyError:
@@ -228,7 +257,25 @@ class Viewer:
         loc = mpl.ticker.MultipleLocator(base=0.1)
         self.ax.get_yaxis().set_major_locator(loc)
 
-    def refresh_data(self, *args):
+    def refresh_data_set(self, set_selector):
+        self.selected_data_set = set_selector.get_active_id()
+
+        self.runs_store.clear()
+        self.cases_store.clear()
+
+        known_cases = dict()
+        for run in read_runs(self.selected_data_set):
+            self.runs_store.append(run)
+            for data in read_cases_data(self.selected_data_set, *run):
+                # Insert case name in a dict instead of a set to preserve the original order:
+                known_cases[data[0]] = None
+        for case_name in known_cases:
+            self.cases_store.append([case_name, False, Gdk.RGBA()])
+
+        self.runs_selection.select_all()
+        self.cases_selection.select_all()
+
+    def _refresh_data(self):
         (cases, sel_cases) = self.cases_selection.get_selected_rows()
         cases_vals = (cases.get_iter(p) for p in sel_cases)
         cases_vals = {cases.get(it, 0)[0]: (it, []) for it in cases_vals}
