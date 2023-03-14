@@ -238,7 +238,7 @@ class Viewer:
                     if first is None:
                         first = new_row[i]
                         new_row[i] = 1.0
-                    else:
+                    elif first != 0:
                         new_row[i] = new_row[i] / first
 
             row[:] = new_row
