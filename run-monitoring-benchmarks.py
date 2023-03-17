@@ -43,7 +43,7 @@ def main():
         print("Error: repository is not clean")
         sys.exit(1)
 
-    run("git fetch --tags".split()).check_returncode()
+    run("git fetch --tags --force".split()).check_returncode()
 
     # Get monitoring tags
     r = run("git show-ref --tags".split(), capture_output=True)
